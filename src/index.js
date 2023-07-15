@@ -1,106 +1,116 @@
-import { getBreeds, getCatByBreed } from './cat-api.js';
+import { getImages } from './pixabay-api';
 import Notiflix from 'notiflix';
-import 'notiflix/src/notiflix.css';
-import SlimSelect from 'slim-select';
-import 'slim-select/dist/slimselect.css';
+import 'notiflix/src/notiflix.css'
+import SimpleLightbox from 'simplelightbox';
+import 'simplelightbox/dist/simple-lightbox.min.css';
+import debounce from 'lodash.debounce';
 
-Notiflix.Notify.init({
-  position: 'center-top',
-  distance: '40px',
-  timeout: 3600000,
-});
-
-let eventError = false;
+let page = 1;
+let querry = '';
+let maxPage = 0;
 
 const refs = {
-  select: document.querySelector('.breed-select'),
-  divData: document.querySelector('.cat-info'),
+  form: document.querySelector('#search-form'),
+  gallery: document.querySelector('.gallery'),
+  btnLoadMore: document.querySelector('.load-more'),
 };
+const gallerySLb = new SimpleLightbox('.gallery a', {
+  captionsData: 'alt',
+  captionDelay: '250',
+});
 
-startLoading(refs.select);
-getBreeds()
-  .then(data => {
-    if (!data.length) throw new Error('Data not found');
-    return data.reduce(
-      (markup, currentEl) => markup + createElement(currentEl),
-      ''
-    );
-  })
-  .then(update)
-  .catch(onError)
-  .finally(endLoading);
+refs.form.addEventListener('submit', onSubmit);
+refs.btnLoadMore.addEventListener('click', getImg);
+window.addEventListener('scroll', debounce(onScroll, 250));
 
-refs.select.addEventListener('change', onSelect);
-
-function createElement({ id, name }) {
-  return `<option data-placeholder="true"></option>;
-  <option value="${id}">${name || 'Unknown'}</option>`;
-}
-
-function update(markup) {
-  refs.select.innerHTML = markup;
-  new SlimSelect({
-    select: refs.select,
-    settings: {
-      placeholderText: 'Select a breed',
-    },
-  });
-  refs.select.classList.remove('hidden');
-}
-
-function onSelect(e) {
-  startLoading(refs.divData);
-  getCatByBreed(e.target.value)
-    .then(data => {
-      if (!data.length) throw new Error('Data not found');
-      return data.reduce(
-        (markup, currentEl) => markup + createEl(getArgs(currentEl)),
-        ''
-      );
+function onSubmit(event) {
+  event.preventDefault();
+  const inputValue = refs.form.elements.searchQuery.value.trim();
+  if (inputValue === '') return Notiflix.Notify.failure('Empty query!');
+  querry = inputValue;
+  clearImgList();
+  page = 1;
+  getImg()
+    .then(hits => {
+      if (hits) {
+        Notiflix.Notify.success(`Hooray! We found ${hits} images.`);
+        maxPage = Math.ceil(hits / 40);
+      }
     })
-    .then(updateMarkup)
     .catch(onError)
-    .finally(endLoading);
+    .finally(() => refs.form.reset());
 }
 
-function createEl ({ url, name, description, temperament }) {
-  return ` <img
-      class="cat_image"
-      src="${url}"
-      alt="${name || 'Unknown'}"
+async function getImg() {
+  try {
+    const data = await getImages(querry, page);
+    if (!data.hits.length)
+      throw new Error(
+        'Sorry, there are no images matching your search query. Please try again.'
+      );
+    page += 1;
+    const markup = await genGall(data.hits);
+    if (markup === undefined) throw new Error('No data!');
+    await renderGallery(markup);
+    return data.totalHits;
+  } catch (err) {
+    onError(err);
+  }
+}
+
+function genGall(data) {
+  return data.reduce(
+    (markup, currentEl) => markup + createItem(currentEl),
+    ''
+  );
+}
+
+
+function createItem({
+  largeImageURL,
+  webformatURL,
+  tags,
+  likes,
+  views,
+  comments,
+  downloads,
+}) {
+  return `<div class="photo-card">
+  <div class="photo">
+  <a href="${largeImageURL}">
+    <img
+      class="gallery__image"
+      src="${webformatURL}"
+      alt="${tags}"
     />
-    <h2 class="title">${name || 'Unknown'}</h2>
-    <p class="descr">${description || 'Unknown'}</p>
-    <h3 class="sub-title">Temperament</h3>
-    <p class="descr">${temperament || 'Unknown'}</p>
-    `;
+    </a>
+    </div>
+    <div class="info">
+    <p class="info-item">
+      <b>Likes</b> ${likes}
+    </p>
+    <p class="info-item">
+      <b>Views</b> ${views}
+    </p>
+    <p class="info-item">
+      <b>Comments</b> ${comments}
+    </p>
+    <p class="info-item">
+      <b>Downloads</b> ${downloads}
+    </p>
+    </div>
+  </div>`;
 }
 
-function updateMarkup(markup) {
-  refs.divData.innerHTML = markup;
-  refs.divData.classList.remove('hidden');
+
+function renderGallery(markup) {
+  refs.gallery.insertAdjacentHTML('beforeend', markup);
+  gallerySLb.refresh();
 }
 
-function getArgs({ url, breeds }) {
-  const { name, description, temperament } = breeds[0];
-  return {
-    url,
-    name,
-    description,
-    temperament,
-  };
-}
 
-function startLoading(element) {
-  if (eventError) afterError();
-  element.classList.add('hidden');
-  Notiflix.Loading.arrows('Loading data, please wait...', {
-    backgroundColor: 'rgba(0,0,0,0.6)',
-  });
-}
-
-function endLoading() {
-  Notiflix.Loading.remove();
+function clearImgList() {
+  refs.gallery.innerHTML = '';
 }
 
 function onError(error) {
@@ -108,8 +118,17 @@ function onError(error) {
   Notiflix.Notify.failure(error.message);
 }
 
-function afterError() {
-  const notify = document.querySelector('.notiflix-notify-failure');
-  if (notify) notify.remove();
-  eventError = false;
+function onScroll() {
+  const scrollPosition = Math.ceil(window.scrollY);
+  const bodyHeight = Math.ceil(document.body.getBoundingClientRect().height);
+  const screenHeight = window.screen.height;
+  if (bodyHeight - scrollPosition < screenHeight) {
+    if (page <= maxPage) {
+      getImg();
+    } else {
+      Notiflix.Notify.failure(
+        "We're sorry, but you've reached the end of search results."
+      );
+    }
+  }
 }
