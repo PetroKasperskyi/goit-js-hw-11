@@ -21,6 +21,8 @@ img {
 
 .wrapper {
   max-width: 1200px;
+
+  background-color: rgb(66, 230, 25);
 }
 
 .form-wrapper {
