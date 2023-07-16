@@ -58,6 +58,11 @@ async function getImg() {
   }
 }
 
+function onError(error) {
+ 
+  Notiflix.Notify.failure(error.message);
+}
+
 function genGall(data) {
   return data.reduce(
     (markup, currentEl) => markup + createItem(currentEl),
@@ -113,10 +118,7 @@ function clearImgList() {
   refs.gallery.innerHTML = '';
 }
 
-function onError(error) {
-  eventError = true;
-  Notiflix.Notify.failure(error.message);
-}
+
 
 function onScroll() {
   const scrollPosition = Math.ceil(window.scrollY);
